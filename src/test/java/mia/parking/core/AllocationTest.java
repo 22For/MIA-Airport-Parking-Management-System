@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
 import mia.parking.domain.*;
+import mia.parking.device.DeviceEvent;
+import mia.parking.gui.ParkingViewListener;
 import mia.parking.dto.*;
 import mia.parking.service.ParkingException;
 
@@ -35,6 +37,52 @@ class AllocationTest {
         assertEquals(List.of(new ZoneView("B", 2), new ZoneView("A", 1)), service.getZones());
         assertTrue(service.getParkingSpaces("B").isEmpty());
         assertEquals(6, service.getParkingSpaces("A").size());
+    }
+
+    private DeviceEvent arrival(EntryParkingService core, EntryResult entry, String bay, Instant time) {
+        String sensor = "sensor-" + bay;
+        core.reportDeviceStatus(new DeviceView(sensor, DeviceView.DeviceType.SPACE_SENSOR, bay,
+                DeviceView.Status.ONLINE, null, null));
+        return new DeviceEvent(UUID.randomUUID(), sensor, DeviceEventType.SPACE_ARRIVED, time,
+                entry.sessionId(), bay, null, null);
+    }
+
+    @Test void arrivalCommitsBothSnapshotsAndNotifiesOnceEvenOnReplay() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var snapshots = new ArrayList<DashboardView>();
+        core.subscribe(new ParkingViewListener() {
+            public void onDashboardChanged(DashboardView snapshot) { snapshots.add(snapshot); }
+            public void onError(ErrorCode code, String message) { fail(message); }
+        });
+        var event = arrival(core, entry, entry.spaceId(), Instant.EPOCH);
+        core.onDeviceEvent(event);
+        core.onDeviceEvent(event);
+        assertEquals(1, snapshots.size());
+        var snapshot = snapshots.get(0);
+        assertEquals(5, snapshot.spaces().stream().filter(s -> s.occupancy() == OccupancyStatus.FREE).count());
+        assertTrue(snapshot.spaces().stream().anyMatch(s -> s.spaceId().equals(entry.spaceId())
+                && s.occupancy() == OccupancyStatus.OCCUPIED && s.version() == 2));
+        var parked = snapshot.activeSessions().get(0);
+        assertEquals(SessionStatus.PARKED, parked.status());
+        assertEquals(event.occurredAt(), parked.parkingStartTime());
+        var conflict = new DeviceEvent(event.eventId(), event.deviceId(), event.type(), event.occurredAt(),
+                event.sessionId(), event.spaceId(), null, "different payload");
+        assertEquals(ErrorCode.DUPLICATE_CONFLICT,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(conflict)).code());
+    }
+
+    @Test void wrongBayAndLateArrivalKeepReservationIntact() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var wrong = arrival(core, entry, "A-G01-002", Instant.EPOCH);
+        assertEquals(ErrorCode.INVALID_STATE,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(wrong)).code());
+        var late = arrival(core, entry, entry.spaceId(), entry.arrivalDeadline().plusNanos(1));
+        assertEquals(ErrorCode.DEADLINE_EXCEEDED,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(late)).code());
+        assertEquals(OccupancyStatus.RESERVED, core.dashboard().spaces().get(0).occupancy());
+        assertNull(core.findSession(entry.sessionId()).orElseThrow().parkingStartTime());
     }
 
     @Test void deviceReportReplacesOnlyThatDeviceAndPreservesOldSnapshot() throws Exception {

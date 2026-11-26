@@ -8,7 +8,7 @@
 
 Open pom.xml as a Maven project in IntelliJ, select JDK 25, and reload Maven dependencies.
 Run mia.parking.core.EntryDemo with the repository root as its working directory.
-It reads files/config/airport-config.json, reserves one space and prints the six resulting states.
+It reads files/config/airport-config.json, prints the reserved space, simulates its sensor arrival, and prints the occupied space and parked session.
 To try a different airport, pass its JSON path as the first program argument.
 The loader uses Jackson. Run Maven Lifecycle → test in IntelliJ, or run mvn test from the root
 (PowerShell compile.ps1 also uses Maven on PATH). The release target is Java 25.
@@ -35,7 +35,7 @@ distance, breaking ties by space ID. Gate distances are loaded for later routing
 Reservation, session creation and request deduplication share a single lock. A repeated request
 returns the original assignment. Default duration, arrival window, currency and clock are injected;
 the demo's 2 hours, 10 minutes and EUR are example values. A membership number requires a connected
-MembershipService. This milestone covers entry and dashboard inspection. Sensor processing, billing,
+MembershipService. B registers a SPACE_SENSOR at its space via reportDeviceStatus, then connects its listener with sensor.subscribe(service::onDeviceEvent). SPACE_ARRIVED requires the assigned session and bay IDs and an observation time from entry through the arrival deadline (inclusive), no later than the Core clock. Successful identical replays are ignored. The GUI receives a dashboard update after both records change. Other device events, billing,
 database persistence and timeout enforcement described below belong to later milestones.
 
 ## Ownership and integration

@@ -9,6 +9,7 @@ import java.time.*;
 import java.util.*;
 import mia.parking.domain.*;
 import mia.parking.dto.*;
+import mia.parking.device.DeviceEvent;
 
 public final class EntryDemo {
     public static void main(String[] args) throws Exception {
@@ -18,7 +19,16 @@ public final class EntryDemo {
         System.out.println("Configured halls: " + service.halls() + ", bays: " + service.dashboard().spaces().size());
         EntryRequest request = new EntryRequest(UUID.randomUUID(), new Vehicle("DEMO01", "US"), "DEMO101",
                 service.halls().get(0), "Demo Air", null, null, false, false);
-        System.out.println(service.enter(request));
+        EntryResult entry = service.enter(request);
+        System.out.println(entry);
         service.dashboard().spaces().forEach(s -> System.out.println(s.spaceId() + " " + s.occupancy()));
+        String sensor = "sensor-" + entry.spaceId();
+        service.reportDeviceStatus(new DeviceView(sensor, DeviceView.DeviceType.SPACE_SENSOR, entry.spaceId(),
+                DeviceView.Status.ONLINE, null, null));
+        service.onDeviceEvent(new DeviceEvent(UUID.randomUUID(), sensor, DeviceEventType.SPACE_ARRIVED,
+                Instant.now(), entry.sessionId(), entry.spaceId(), null, null));
+        System.out.println("After simulated sensor arrival:");
+        service.dashboard().spaces().forEach(s -> System.out.println(s.spaceId() + " " + s.occupancy()));
+        System.out.println(service.findSession(entry.sessionId()).orElseThrow());
     }
 }
