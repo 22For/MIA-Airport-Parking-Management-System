@@ -4,13 +4,44 @@ Team member 1 / Core: [NAME]
 Team member 2 / Devices: [NAME]  
 Team member 3 / GUI: [NAME]
 
-## Setup
-Use JDK 17 or newer (records require Java 17 for this baseline). Open this directory in IntelliJ, set Project SDK to JDK 17+, and mark `src/main/java` as Sources Root. No frameworks, build tools or external dependencies are needed. Run `./compile.ps1` in PowerShell to compile. This is a shared contract package, not a complete runnable parking application; there is deliberately no main method or fake payment implementation.
+## Run the entry milestone
+
+Open pom.xml as a Maven project in IntelliJ, select JDK 17+, and reload Maven dependencies.
+Run mia.parking.core.EntryDemo with the repository root as its working directory.
+It reads files/config/airport-config.json, reserves one space and prints the six resulting states.
+To try a different airport, pass its JSON path as the first program argument.
+The loader uses Jackson. Run Maven Lifecycle → test in IntelliJ, or run mvn test from the root
+(PowerShell compile.ps1 also uses Maven on PATH). The release target is Java 17.
+
+## Airport layout and team integration
+
+The external JSON lists hall and gate IDs, then zones (zoneId, signed floor) with groups.
+Each group has a unique groupId, positive numberOfSpaces, chargingAvailable and accessible flags,
+and distance maps in whole nonnegative metres covering every configured hall and gate.
+Declare all fields. Keep IDs nonblank and unique within each kind; group IDs are airport-wide.
+Each group generates individual IDs from its ID and a one-based, minimum-three-digit suffix.
+Add a hall by adding its ID to halls and its distance to every group. Increase one count from 3 to 4
+and rerun to see seven bays. In this first layout format a zone has one floor and group capabilities
+apply to every generated bay. Group distances are shared; each bay has independent live state.
+
+GUI: construct EntryParkingService as shown in EntryDemo (type it as ParkingService).
+Use halls() for the destination selector, dashboard().spaces() for the grid, groupId() to group cells,
+and enter(request) for assignment. SpaceView.hall() identifies the closest display hall;
+allocation considers all configured destinations. Hall is now an ID record: compare with equals.
+Devices: use the returned spaceId and sessionId together when constructing future sensor events.
+
+Core first filters for enabled, free and matching capabilities, then chooses the shortest group-to-hall
+distance, breaking ties by space ID. Gate distances are loaded for later routing.
+Reservation, session creation and request deduplication share a single lock. A repeated request
+returns the original assignment. Default duration, arrival window, currency and clock are injected;
+the demo's 2 hours, 10 minutes and EUR are example values. A membership number requires a connected
+MembershipService. This milestone covers entry and dashboard inspection. Sensor processing, billing,
+database persistence and timeout enforcement described below belong to later milestones.
 
 ## Ownership and integration
 Core owns allocation, session transitions, in-memory state maps, registered-user lookup, default duration, pricing/payment policy and device-event handling. Devices owns simulations implementing device interfaces, emits immutable events, and subscribes the Core DeviceEventHandler adapter. GUI owns screens, consumes only view DTOs, calls ParkingService and marshals listener callbacks onto its UI thread (SwingUtilities.invokeLater for Swing). Shared domain/DTO/interface changes require all three members' agreement. Keep implementation packages separate: mia.parking.core, mia.parking.simulation, mia.parking.ui. Do not change interface signatures independently.
 
-All Java files begin with three name placeholders; replace them before submission. FIELD_REFERENCE.md is the field/nullability contract. Hall values NORTH/SOUTH are provisional configuration labels: the supplied requirements do not specify actual airport hall names. Agree on replacements before implementation. Currency, rounding, tariff, membership discounts, default visit duration, arrival grace and exit grace are configurable Core policies; no teacher-specific numeric values were supplied.
+All Java files begin with three name placeholders; replace them before submission. FIELD_REFERENCE.md is the field/nullability contract. Hall IDs come from the external layout. Currency, rounding, tariff, membership discounts, default visit duration, arrival grace and exit grace are configurable Core policies; no teacher-specific numeric values were supplied.
 
 ## Core invariants
 Every accepted visit creates a ParkingSession, including occasional visitors. An occasional visitor has registeredUserId=null and no RegisteredUser is manufactured. Membership number may exist without a registered-user association. Reject invalid supplied membership according to the agreed policy; never silently register a visitor. Null requestedDuration resolves to a positive configured default in Core. Never derive billing time from entry or planned duration; bill confirmed parking occupancy according to the agreed tariff.

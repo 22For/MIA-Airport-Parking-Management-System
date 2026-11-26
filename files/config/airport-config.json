@@ -1,0 +1,46 @@
+{
+  "halls": [
+    "H1",
+    "H2"
+  ],
+  "gates": [
+    "WEST",
+    "EAST"
+  ],
+  "zones": [
+    {
+      "zoneId": "A",
+      "floor": 1,
+      "groups": [
+        {
+          "groupId": "A-G01",
+          "numberOfSpaces": 3,
+          "chargingAvailable": false,
+          "accessible": true,
+          "distancesToHalls": {
+            "H1": 80,
+            "H2": 200
+          },
+          "distancesToGates": {
+            "WEST": 30,
+            "EAST": 100
+          }
+        },
+        {
+          "groupId": "A-G02",
+          "numberOfSpaces": 3,
+          "chargingAvailable": true,
+          "accessible": true,
+          "distancesToHalls": {
+            "H1": 140,
+            "H2": 60
+          },
+          "distancesToGates": {
+            "WEST": 90,
+            "EAST": 40
+          }
+        }
+      ]
+    }
+  ]
+}

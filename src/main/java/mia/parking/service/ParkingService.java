@@ -15,6 +15,8 @@ import mia.parking.gui.*;
 import mia.parking.service.*;
 
 public interface ParkingService {
+ /** Configured destinations for the GUI selector; legacy mock services may override. */
+ default List<Hall> halls() { return dashboard().spaces().stream().map(SpaceView::hall).distinct().toList(); }
  EntryResult enter(EntryRequest request);
  Optional<SessionView> findSession(UUID sessionId);
  DashboardView dashboard();

@@ -103,3 +103,5 @@ All references are non-null unless annotated `@Nullable`. Blank required strings
 | `DeviceEvent.spaceId` | `String` | Yes | Required for space arrival/departure |
 | `DeviceEvent.vehicle` | `Vehicle` | Yes | Required for entry detection |
 | `DeviceEvent.detail` | `String` | Yes | Required for device fault; optional diagnostic otherwise |
+
+Entry milestone additions: Hall.id is a nonblank configured identifier. SpaceView.groupId is populated for all configured bays and may be null in older GUI fixtures. ParkingSpace.hall and SpaceView.hall describe the closest hall; EntryRequest.hall and ParkingSession.hall describe the requested destination. Group distance maps use whole metres. See README for the airport JSON schema.
