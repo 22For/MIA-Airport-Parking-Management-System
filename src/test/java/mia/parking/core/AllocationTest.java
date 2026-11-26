@@ -12,11 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
 import mia.parking.domain.*;
+import mia.parking.device.DeviceEvent;
+import mia.parking.gui.ParkingViewListener;
 import mia.parking.dto.*;
 import mia.parking.service.ParkingException;
 
 class AllocationTest {
-    private final Path config = Path.of("files/config/airport-config.json");
+    // A fixed six-bay fixture keeps these assertions independent of classroom demo edits.
+    private final Path config = Path.of("src/test/resources/six-bay-airport.json");
 
     private EntryParkingService load(Path file) throws Exception {
         return new EntryParkingService(AirportLayout.load(file), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
@@ -35,6 +38,96 @@ class AllocationTest {
         assertEquals(List.of(new ZoneView("B", 2), new ZoneView("A", 1)), service.getZones());
         assertTrue(service.getParkingSpaces("B").isEmpty());
         assertEquals(6, service.getParkingSpaces("A").size());
+    }
+
+    private DeviceEvent arrival(EntryParkingService core, EntryResult entry, String bay, Instant time) {
+        String sensor = "sensor-" + bay;
+        core.reportDeviceStatus(new DeviceView(sensor, DeviceView.DeviceType.SPACE_SENSOR, bay,
+                DeviceView.Status.ONLINE, null, null));
+        return new DeviceEvent(UUID.randomUUID(), sensor, DeviceEventType.SPACE_ARRIVED, time,
+                entry.sessionId(), bay, null, null);
+    }
+
+    @Test void arrivalCommitsBothSnapshotsAndNotifiesOnceEvenOnReplay() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var snapshots = new ArrayList<DashboardView>();
+        core.subscribe(new ParkingViewListener() {
+            public void onDashboardChanged(DashboardView snapshot) { snapshots.add(snapshot); }
+            public void onError(ErrorCode code, String message) { fail(message); }
+        });
+        var event = arrival(core, entry, entry.spaceId(), Instant.EPOCH);
+        core.onDeviceEvent(event);
+        core.onDeviceEvent(event);
+        assertEquals(1, snapshots.size());
+        var snapshot = snapshots.get(0);
+        assertEquals(5, snapshot.spaces().stream().filter(s -> s.occupancy() == OccupancyStatus.FREE).count());
+        assertTrue(snapshot.spaces().stream().anyMatch(s -> s.spaceId().equals(entry.spaceId())
+                && s.occupancy() == OccupancyStatus.OCCUPIED && s.version() == 2));
+        var parked = snapshot.activeSessions().get(0);
+        assertEquals(SessionStatus.PARKED, parked.status());
+        assertEquals(event.occurredAt(), parked.parkingStartTime());
+        var conflict = new DeviceEvent(event.eventId(), event.deviceId(), event.type(), event.occurredAt(),
+                event.sessionId(), event.spaceId(), null, "different payload");
+        assertEquals(ErrorCode.DUPLICATE_CONFLICT,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(conflict)).code());
+    }
+
+    private DeviceEvent departure(DeviceEvent arrival, Instant time) {
+        return new DeviceEvent(UUID.randomUUID(), arrival.deviceId(), DeviceEventType.SPACE_LEFT,
+                time, arrival.sessionId(), arrival.spaceId(), null, null);
+    }
+
+    @Test void departureReleasesBayButReplayCannotReleaseNextDriversReservation() throws Exception {
+        var core = new EntryParkingService(AirportLayout.load(config), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+                Duration.ofHours(2), Duration.ofMinutes(10), Duration.ofMinutes(7),
+                Currency.getInstance("EUR"), Optional.empty());
+        var first = core.enter(request("H1", false));
+        var arrived = arrival(core, first, first.spaceId(), Instant.EPOCH);
+        core.onDeviceEvent(arrived);
+        var left = departure(arrived, Instant.EPOCH);
+        core.onDeviceEvent(left);
+        var waiting = core.findSession(first.sessionId()).orElseThrow();
+        assertEquals(SessionStatus.AWAITING_EXIT, waiting.status());
+        assertEquals(arrived.occurredAt(), waiting.parkingStartTime());
+        assertEquals(left.occurredAt(), waiting.leaveSpaceTime());
+        assertEquals(left.occurredAt().plusSeconds(420), waiting.exitDeadline());
+        assertNull(waiting.exitTime());
+        var secondRequest = new EntryRequest(UUID.randomUUID(), new Vehicle("SECOND", "US"), "T2",
+                new Hall("H1"), "Air", null, null, false, true);
+        var second = core.enter(secondRequest);
+        assertEquals(first.spaceId(), second.spaceId());
+        var beforeReplay = core.dashboard();
+        core.onDeviceEvent(left);
+        assertEquals(beforeReplay, core.dashboard());
+        assertEquals(ErrorCode.INVALID_STATE, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH))).code());
+        assertEquals(OccupancyStatus.RESERVED, core.dashboard().spaces().get(0).occupancy());
+    }
+
+    @Test void prematureDepartureCannotFreeTheBay() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var arrived = arrival(core, entry, entry.spaceId(), Instant.EPOCH);
+        assertEquals(ErrorCode.INVALID_STATE, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH))).code());
+        core.onDeviceEvent(arrived);
+        assertEquals(ErrorCode.INVALID_REQUEST, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH.minusSeconds(1)))).code());
+        assertEquals(OccupancyStatus.OCCUPIED, core.dashboard().spaces().get(0).occupancy());
+    }
+
+    @Test void wrongBayAndLateArrivalKeepReservationIntact() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var wrong = arrival(core, entry, "A-G01-002", Instant.EPOCH);
+        assertEquals(ErrorCode.INVALID_STATE,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(wrong)).code());
+        var late = arrival(core, entry, entry.spaceId(), entry.arrivalDeadline().plusNanos(1));
+        assertEquals(ErrorCode.DEADLINE_EXCEEDED,
+                assertThrows(ParkingException.class, () -> core.onDeviceEvent(late)).code());
+        assertEquals(OccupancyStatus.RESERVED, core.dashboard().spaces().get(0).occupancy());
+        assertNull(core.findSession(entry.sessionId()).orElseThrow().parkingStartTime());
     }
 
     @Test void deviceReportReplacesOnlyThatDeviceAndPreservesOldSnapshot() throws Exception {
