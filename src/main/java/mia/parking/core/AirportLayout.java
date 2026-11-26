@@ -23,6 +23,7 @@ public final class AirportLayout {
     public record Bay(ParkingSpace space, Group group) {}
 
     private final List<Hall> halls;
+    private final List<mia.parking.dto.ZoneView> zoneViews;
     private final List<Bay> bays;
 
     public static AirportLayout load(Path path) throws IOException {
@@ -41,6 +42,8 @@ public final class AirportLayout {
         Set<String> gateIds = ids(config.gates(), "gate");
         halls = config.halls().stream().map(Hall::new).toList();
         List<Bay> generated = new ArrayList<>();
+        zoneViews = config.zones().stream()
+                .map(z -> new mia.parking.dto.ZoneView(z.zoneId(), z.floor())).toList();
         Set<String> zones = new HashSet<>(), groups = new HashSet<>();
         for (Zone zone : config.zones()) {
             unique(zones, zone.zoneId(), "zone");
@@ -79,5 +82,6 @@ public final class AirportLayout {
     }
 
     public List<Hall> halls() { return halls; }
+    public List<mia.parking.dto.ZoneView> zones() { return zoneViews; }
     public List<Bay> bays() { return bays; }
 }

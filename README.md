@@ -39,6 +39,15 @@ MembershipService. This milestone covers entry and dashboard inspection. Sensor 
 database persistence and timeout enforcement described below belong to later milestones.
 
 ## Ownership and integration
+
+GUI zone tabs: call `ParkingService.getZones()` for every configured zone (including empty ones),
+then `getParkingSpaces(zoneId)` for its current bays. ZoneView contains zoneId and floor.
+For the device monitor, give B the same EntryParkingService instance as a DeviceStatusReporter.
+B calls reportDeviceStatus(DeviceView) at startup and on changes, in observation order per device.
+C calls getDevices() when opening or refreshing the monitor. It returns immutable snapshots of
+reported devices only, in registration order. The last report for each device ID wins.
+DeviceView includes deviceId, deviceType, locationId, operationalStatus, lastSelfTestTime
+(null before testing) and lastErrorMessage (null when no error is reported).
 Core owns allocation, session transitions, in-memory state maps, registered-user lookup, default duration, pricing/payment policy and device-event handling. Devices owns simulations implementing device interfaces, emits immutable events, and subscribes the Core DeviceEventHandler adapter. GUI owns screens, consumes only view DTOs, calls ParkingService and marshals listener callbacks onto its UI thread (SwingUtilities.invokeLater for Swing). Shared domain/DTO/interface changes require all three members' agreement. Keep implementation packages separate: mia.parking.core, mia.parking.simulation, mia.parking.ui. Do not change interface signatures independently.
 
 All Java files begin with three name placeholders; replace them before submission. FIELD_REFERENCE.md is the field/nullability contract. Hall IDs come from the external layout. Currency, rounding, tariff, membership discounts, default visit duration, arrival grace and exit grace are configurable Core policies; no teacher-specific numeric values were supplied.

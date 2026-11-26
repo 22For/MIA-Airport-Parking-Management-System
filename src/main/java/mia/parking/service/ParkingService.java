@@ -15,6 +15,16 @@ import mia.parking.gui.*;
 import mia.parking.service.*;
 
 public interface ParkingService {
+ /** Legacy GUI fixtures can derive tabs from bays; Core also includes configured empty zones. */
+ default List<ZoneView> getZones() {
+     return dashboard().spaces().stream().map(s -> new ZoneView(s.zone(), s.floor())).distinct().toList();
+ }
+ /** An empty or unknown zone has no bays. */
+ default List<SpaceView> getParkingSpaces(String zoneId) {
+     Objects.requireNonNull(zoneId);
+     return dashboard().spaces().stream().filter(s -> zoneId.equals(s.zone())).toList();
+ }
+ default List<DeviceView> getDevices() { return List.of(); }
  /** Configured destinations for the GUI selector; legacy mock services may override. */
  default List<Hall> halls() { return dashboard().spaces().stream().map(SpaceView::hall).distinct().toList(); }
  EntryResult enter(EntryRequest request);

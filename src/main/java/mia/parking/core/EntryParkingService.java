@@ -11,7 +11,16 @@ import mia.parking.gui.ParkingViewListener;
 import mia.parking.service.*;
 
 /** In-memory first milestone: entry, inspection and operational controls. */
-public final class EntryParkingService implements ParkingService {
+public final class EntryParkingService implements ParkingService, mia.parking.device.DeviceStatusReporter {
+    private final Map<String, DeviceView> devices = new LinkedHashMap<>();
+
+    @Override public List<ZoneView> getZones() { return layout.zones(); }
+
+    @Override public synchronized List<DeviceView> getDevices() { return List.copyOf(devices.values()); }
+
+    @Override public synchronized void reportDeviceStatus(DeviceView device) {
+        devices.put(device.deviceId(), device);
+    }
     private record Accepted(EntryRequest request, EntryResult result) {}
     private final AirportLayout layout;
     private final Clock clock;

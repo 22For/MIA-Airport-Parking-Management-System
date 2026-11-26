@@ -25,6 +25,31 @@ class AllocationTest {
                 "Air", null, null, charging, true);
     }
 
+    @Test void configuredEmptyZoneGetsItsOwnTab(@TempDir Path temp) throws Exception {
+        String json = Files.readString(config).replace("\"zones\": [",
+                "\"zones\": [{\"zoneId\":\"B\",\"floor\":2,\"groups\":[]},");
+        var service = load(Files.writeString(temp.resolve("zones.json"), json));
+        assertEquals(List.of(new ZoneView("B", 2), new ZoneView("A", 1)), service.getZones());
+        assertTrue(service.getParkingSpaces("B").isEmpty());
+        assertEquals(6, service.getParkingSpaces("A").size());
+    }
+
+    @Test void deviceReportReplacesOnlyThatDeviceAndPreservesOldSnapshot() throws Exception {
+        var service = load(config);
+        var online = new DeviceView("S1", DeviceView.DeviceType.SPACE_SENSOR, "A-G01-001",
+                DeviceView.Status.ONLINE, null, null);
+        var camera = new DeviceView("C1", DeviceView.DeviceType.CAMERA, "WEST",
+                DeviceView.Status.UNKNOWN, null, null);
+        service.reportDeviceStatus(online);
+        service.reportDeviceStatus(camera);
+        var before = service.getDevices();
+        var fault = new DeviceView("S1", online.deviceType(), online.locationId(),
+                DeviceView.Status.FAULT, Instant.EPOCH, "Self-test failed");
+        service.reportDeviceStatus(fault);
+        assertEquals(List.of(fault, camera), service.getDevices());
+        assertEquals(List.of(online, camera), before);
+    }
+
     @Test void layoutChangesWithoutCode(@TempDir Path temp) throws Exception {
         String changed = Files.readString(config).replace("H1", "NEW-HALL")
                 .replaceFirst("\"numberOfSpaces\": 3", "\"numberOfSpaces\": 4");
