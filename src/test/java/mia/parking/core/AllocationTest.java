@@ -72,6 +72,50 @@ class AllocationTest {
                 assertThrows(ParkingException.class, () -> core.onDeviceEvent(conflict)).code());
     }
 
+    private DeviceEvent departure(DeviceEvent arrival, Instant time) {
+        return new DeviceEvent(UUID.randomUUID(), arrival.deviceId(), DeviceEventType.SPACE_LEFT,
+                time, arrival.sessionId(), arrival.spaceId(), null, null);
+    }
+
+    @Test void departureReleasesBayButReplayCannotReleaseNextDriversReservation() throws Exception {
+        var core = new EntryParkingService(AirportLayout.load(config), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+                Duration.ofHours(2), Duration.ofMinutes(10), Duration.ofMinutes(7),
+                Currency.getInstance("EUR"), Optional.empty());
+        var first = core.enter(request("H1", false));
+        var arrived = arrival(core, first, first.spaceId(), Instant.EPOCH);
+        core.onDeviceEvent(arrived);
+        var left = departure(arrived, Instant.EPOCH);
+        core.onDeviceEvent(left);
+        var waiting = core.findSession(first.sessionId()).orElseThrow();
+        assertEquals(SessionStatus.AWAITING_EXIT, waiting.status());
+        assertEquals(arrived.occurredAt(), waiting.parkingStartTime());
+        assertEquals(left.occurredAt(), waiting.leaveSpaceTime());
+        assertEquals(left.occurredAt().plusSeconds(420), waiting.exitDeadline());
+        assertNull(waiting.exitTime());
+        var secondRequest = new EntryRequest(UUID.randomUUID(), new Vehicle("SECOND", "US"), "T2",
+                new Hall("H1"), "Air", null, null, false, true);
+        var second = core.enter(secondRequest);
+        assertEquals(first.spaceId(), second.spaceId());
+        var beforeReplay = core.dashboard();
+        core.onDeviceEvent(left);
+        assertEquals(beforeReplay, core.dashboard());
+        assertEquals(ErrorCode.INVALID_STATE, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH))).code());
+        assertEquals(OccupancyStatus.RESERVED, core.dashboard().spaces().get(0).occupancy());
+    }
+
+    @Test void prematureDepartureCannotFreeTheBay() throws Exception {
+        var core = load(config);
+        var entry = core.enter(request("H1", false));
+        var arrived = arrival(core, entry, entry.spaceId(), Instant.EPOCH);
+        assertEquals(ErrorCode.INVALID_STATE, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH))).code());
+        core.onDeviceEvent(arrived);
+        assertEquals(ErrorCode.INVALID_REQUEST, assertThrows(ParkingException.class,
+                () -> core.onDeviceEvent(departure(arrived, Instant.EPOCH.minusSeconds(1)))).code());
+        assertEquals(OccupancyStatus.OCCUPIED, core.dashboard().spaces().get(0).occupancy());
+    }
+
     @Test void wrongBayAndLateArrivalKeepReservationIntact() throws Exception {
         var core = load(config);
         var entry = core.enter(request("H1", false));

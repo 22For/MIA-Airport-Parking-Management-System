@@ -71,3 +71,5 @@ Use BigDecimal exclusively for money, compare with compareTo, and round explicit
 
 ## Integration acceptance checks
 Core member: race two entries for one bay (exactly one succeeds); replay requests/events; verify null duration default, occasional visitor, mismatch rejection, deadlines and all lifecycle transitions. Devices member: verify start/stop/subscription cleanup and event payloads without touching Core maps. GUI member: verify immutable DTO rendering, error presentation and UI-thread callbacks. Together verify disable-while-occupied, payment failure/retry, space release before airport exit, and timestamp ordering with a fixed Clock. Compilation checks signatures only, not these behavioral obligations.
+
+EntryDemo also sends SPACE_LEFT from the same registered sensor. Core releases that bay, preserves its operational status, and keeps the session active as AWAITING_EXIT. The observed departure time starts the exit grace period (constructor parameter; 15 minutes in the default demo). exitTime remains null until physical exit is implemented. Event replays cannot release a new reservation.

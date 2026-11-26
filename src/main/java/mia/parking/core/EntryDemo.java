@@ -30,5 +30,10 @@ public final class EntryDemo {
         System.out.println("After simulated sensor arrival:");
         service.dashboard().spaces().forEach(s -> System.out.println(s.spaceId() + " " + s.occupancy()));
         System.out.println(service.findSession(entry.sessionId()).orElseThrow());
+        service.onDeviceEvent(new DeviceEvent(UUID.randomUUID(), sensor, DeviceEventType.SPACE_LEFT,
+                Instant.now(), entry.sessionId(), entry.spaceId(), null, null));
+        System.out.println("After simulated departure from bay:");
+        service.dashboard().spaces().forEach(s -> System.out.println(s.spaceId() + " " + s.occupancy()));
+        System.out.println(service.findSession(entry.sessionId()).orElseThrow());
     }
 }

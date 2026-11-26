@@ -30,17 +30,25 @@ public final class EntryParkingService implements ParkingService, DeviceEventHan
     private final Clock clock;
     private final Duration defaultDuration;
     private final Duration arrivalWindow;
+    private final Duration exitGrace;
     private final Currency currency;
     private final MembershipService memberships;
     private final Map<String,ParkingSpaceState> states = new LinkedHashMap<>();
     private final Map<UUID,ParkingSession> sessions = new LinkedHashMap<>();
     private final Map<UUID,Accepted> accepted = new HashMap<>();
-    private final Map<UUID, DeviceEvent> confirmedArrivals = new HashMap<>();
+    private final Map<UUID, DeviceEvent> processedEvents = new HashMap<>();
     private final List<ParkingViewListener> listeners = new CopyOnWriteArrayList<>();
 
     /** Pass Optional.empty() for the standalone visitor-only demonstration. */
     public EntryParkingService(AirportLayout layout, Clock clock, Duration defaultDuration,
             Duration arrivalWindow, Currency currency, Optional<MembershipService> memberships) {
+        this(layout, clock, defaultDuration, arrivalWindow, Duration.ofMinutes(15), currency, memberships);
+    }
+
+    /** Exit grace starts at the sensor's departure time, including for delayed reports. */
+    public EntryParkingService(AirportLayout layout, Clock clock, Duration defaultDuration,
+            Duration arrivalWindow, Duration exitGrace, Currency currency, Optional<MembershipService> memberships) {
+        this.exitGrace = positive(exitGrace);
         this.layout = Objects.requireNonNull(layout);
         this.clock = Objects.requireNonNull(clock);
         this.defaultDuration = positive(defaultDuration);
@@ -105,14 +113,15 @@ public final class EntryParkingService implements ParkingService, DeviceEventHan
     @Override public void onDeviceEvent(DeviceEvent event) {
         Objects.requireNonNull(event);
         synchronized (this) {
-            DeviceEvent prior = confirmedArrivals.get(event.eventId());
+            DeviceEvent prior = processedEvents.get(event.eventId());
             if (prior != null) {
                 if (prior.equals(event)) return;
-                throw new ParkingException(ErrorCode.DUPLICATE_CONFLICT, "Arrival event ID reused with different data");
+                throw new ParkingException(ErrorCode.DUPLICATE_CONFLICT, "Event ID reused with different data");
             }
-            if (event.type() != DeviceEventType.SPACE_ARRIVED || event.sessionId() == null
+            boolean leaving = event.type() == DeviceEventType.SPACE_LEFT;
+            if ((!leaving && event.type() != DeviceEventType.SPACE_ARRIVED) || event.sessionId() == null
                     || event.spaceId() == null || event.spaceId().isBlank())
-                throw new ParkingException(ErrorCode.INVALID_REQUEST, "Expected SPACE_ARRIVED with session and space IDs");
+                throw new ParkingException(ErrorCode.INVALID_REQUEST, "Expected a bay arrival or departure with session and space IDs");
             ParkingSession visit = sessions.get(event.sessionId());
             if (visit == null) throw new ParkingException(ErrorCode.NOT_FOUND, "Unknown parking session");
             DeviceView sensor = devices.get(event.deviceId());
@@ -120,26 +129,31 @@ public final class EntryParkingService implements ParkingService, DeviceEventHan
                     || !sensor.locationId().equals(event.spaceId()))
                 throw new ParkingException(ErrorCode.INVALID_REQUEST, "Sensor is not registered for this space");
             ParkingSpaceState bay = states.get(event.spaceId());
-            if (!visit.spaceId().equals(event.spaceId()) || bay == null || !visit.sessionId().equals(bay.sessionId())
-                    || visit.status() != SessionStatus.ASSIGNED || bay.occupancy() != OccupancyStatus.RESERVED)
-                throw new ParkingException(ErrorCode.INVALID_STATE, "Arrival does not match an active reservation");
+            if (!visit.spaceId().equals(event.spaceId()) || bay == null || !visit.sessionId().equals(bay.sessionId()))
+                throw new ParkingException(ErrorCode.INVALID_STATE, "Bay does not belong to this session");
+            if (visit.status() != (leaving ? SessionStatus.PARKED : SessionStatus.ASSIGNED)
+                    || bay.occupancy() != (leaving ? OccupancyStatus.OCCUPIED : OccupancyStatus.RESERVED))
+                throw new ParkingException(ErrorCode.INVALID_STATE, "Unexpected event for current parking state");
             Instant observed = event.occurredAt();
             Instant now = clock.instant();
-            if (observed.isAfter(visit.arrivalDeadline()))
+            if (!leaving && observed.isAfter(visit.arrivalDeadline()))
                 throw new ParkingException(ErrorCode.DEADLINE_EXCEEDED, "Vehicle arrived after the deadline");
-            if (observed.isBefore(visit.entryTime()) || observed.isAfter(now))
-                throw new ParkingException(ErrorCode.INVALID_REQUEST, "Arrival timestamp outside observation window");
+            if (observed.isBefore(leaving ? visit.parkingStartTime() : visit.entryTime()) || observed.isAfter(now))
+                throw new ParkingException(ErrorCode.INVALID_REQUEST, "Sensor timestamp outside observation window");
 
             // Commit both snapshots together; a replay must not restart the parking clock.
-            ParkingSession parked = new ParkingSession(visit.sessionId(), visit.vehicle(), visit.registeredUserId(),
+            ParkingSession updatedVisit = new ParkingSession(visit.sessionId(), visit.vehicle(), visit.registeredUserId(),
                     visit.membershipNumber(), visit.flightNumber(), visit.hall(), visit.airline(), visit.plannedDuration(),
-                    visit.chargingRequired(), visit.accessibilityRequired(), visit.spaceId(), SessionStatus.PARKED,
-                    visit.entryTime(), visit.arrivalDeadline(), observed, null, null, null);
-            ParkingSpaceState occupied = new ParkingSpaceState(bay.spaceId(), OccupancyStatus.OCCUPIED,
-                    bay.operation(), visit.sessionId(), bay.version() + 1, now);
-            sessions.put(visit.sessionId(), parked);
-            states.put(bay.spaceId(), occupied);
-            confirmedArrivals.put(event.eventId(), event);
+                    visit.chargingRequired(), visit.accessibilityRequired(), visit.spaceId(),
+                    leaving ? SessionStatus.AWAITING_EXIT : SessionStatus.PARKED, visit.entryTime(), visit.arrivalDeadline(),
+                    leaving ? visit.parkingStartTime() : observed, leaving ? observed : null,
+                    leaving ? observed.plus(exitGrace) : null, null);
+            ParkingSpaceState updatedBay = new ParkingSpaceState(bay.spaceId(),
+                    leaving ? OccupancyStatus.FREE : OccupancyStatus.OCCUPIED, bay.operation(),
+                    leaving ? null : visit.sessionId(), bay.version() + 1, now);
+            sessions.put(visit.sessionId(), updatedVisit);
+            states.put(bay.spaceId(), updatedBay);
+            processedEvents.put(event.eventId(), event);
         }
         publish();
     }
