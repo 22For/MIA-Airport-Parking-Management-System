@@ -1,17 +1,17 @@
 # MIA Airport Parking Management System — shared starter
 
-Team member 1 / Core: [NAME]  
-Team member 2 / Devices: [NAME]  
-Team member 3 / GUI: [NAME]
+- Team member 1 / Core: Yanli Zhang (2026248006)
+- Team member 2 / Devices: Zhuoyan Zhu (2026248025)
+- Team member 3 / GUI: Meizhu Pan (2026248067)
 
 ## Run the entry milestone
 
-Open pom.xml as a Maven project in IntelliJ, select JDK 17+, and reload Maven dependencies.
+Open pom.xml as a Maven project in IntelliJ, select JDK 25, and reload Maven dependencies.
 Run mia.parking.core.EntryDemo with the repository root as its working directory.
 It reads files/config/airport-config.json, reserves one space and prints the six resulting states.
 To try a different airport, pass its JSON path as the first program argument.
 The loader uses Jackson. Run Maven Lifecycle → test in IntelliJ, or run mvn test from the root
-(PowerShell compile.ps1 also uses Maven on PATH). The release target is Java 17.
+(PowerShell compile.ps1 also uses Maven on PATH). The release target is Java 25.
 
 ## Airport layout and team integration
 
@@ -50,7 +50,7 @@ DeviceView includes deviceId, deviceType, locationId, operationalStatus, lastSel
 (null before testing) and lastErrorMessage (null when no error is reported).
 Core owns allocation, session transitions, in-memory state maps, registered-user lookup, default duration, pricing/payment policy and device-event handling. Devices owns simulations implementing device interfaces, emits immutable events, and subscribes the Core DeviceEventHandler adapter. GUI owns screens, consumes only view DTOs, calls ParkingService and marshals listener callbacks onto its UI thread (SwingUtilities.invokeLater for Swing). Shared domain/DTO/interface changes require all three members' agreement. Keep implementation packages separate: mia.parking.core, mia.parking.simulation, mia.parking.ui. Do not change interface signatures independently.
 
-All Java files begin with three name placeholders; replace them before submission. FIELD_REFERENCE.md is the field/nullability contract. Hall IDs come from the external layout. Currency, rounding, tariff, membership discounts, default visit duration, arrival grace and exit grace are configurable Core policies; no teacher-specific numeric values were supplied.
+All Java files begin with the team members' names and student IDs. FIELD_REFERENCE.md is the field/nullability contract. Hall IDs come from the external layout. Currency, rounding, tariff, membership discounts, default visit duration, arrival grace and exit grace are configurable Core policies; no teacher-specific numeric values were supplied.
 
 ## Core invariants
 Every accepted visit creates a ParkingSession, including occasional visitors. An occasional visitor has registeredUserId=null and no RegisteredUser is manufactured. Membership number may exist without a registered-user association. Reject invalid supplied membership according to the agreed policy; never silently register a visitor. Null requestedDuration resolves to a positive configured default in Core. Never derive billing time from entry or planned duration; bill confirmed parking occupancy according to the agreed tariff.

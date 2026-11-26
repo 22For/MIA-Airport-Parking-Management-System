@@ -2,3 +2,5 @@ out/
 .idea/
 *.iml
 target/
+/Description/
+/Step[1-3]/
