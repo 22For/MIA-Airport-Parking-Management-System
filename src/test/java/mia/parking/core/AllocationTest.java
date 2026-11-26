@@ -18,7 +18,8 @@ import mia.parking.dto.*;
 import mia.parking.service.ParkingException;
 
 class AllocationTest {
-    private final Path config = Path.of("files/config/airport-config.json");
+    // A fixed six-bay fixture keeps these assertions independent of classroom demo edits.
+    private final Path config = Path.of("src/test/resources/six-bay-airport.json");
 
     private EntryParkingService load(Path file) throws Exception {
         return new EntryParkingService(AirportLayout.load(file), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
